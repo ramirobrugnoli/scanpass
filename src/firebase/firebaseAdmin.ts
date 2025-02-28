@@ -11,6 +11,7 @@ const serviceAccount = {
 
 export function getFirebaseAdmin() {
   if (!getApps().length) {
+    console.log("Service Account:", serviceAccount);
     initializeApp({
       credential: cert(serviceAccount as any),
     });
