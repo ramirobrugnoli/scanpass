@@ -42,7 +42,7 @@ export default function Dashboard(): JSX.Element {
               <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
                 <Link
                   href="/dashboard"
-                  className="border-indigo-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium"
+                  className="border-indigo-500 text-white-900 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium"
                 >
                   Dashboard
                 </Link>
@@ -76,7 +76,7 @@ export default function Dashboard(): JSX.Element {
       <div className="py-10">
         <header>
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h1 className="text-3xl font-bold leading-tight text-gray-900">
+            <h1 className="text-3xl font-bold leading-tight text-white-900">
               Dashboard
             </h1>
           </div>

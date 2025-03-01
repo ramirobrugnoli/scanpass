@@ -33,19 +33,19 @@ export default function Home(): JSX.Element {
           <div className="hidden lg:flex lg:gap-x-12">
             <a
               href="#features"
-              className="text-sm font-semibold leading-6 text-gray-900"
+              className="text-sm font-semibold leading-6 text-white-900"
             >
               Features
             </a>
             <a
               href="#testimonials"
-              className="text-sm font-semibold leading-6 text-gray-900"
+              className="text-sm font-semibold leading-6 text-white-900"
             >
               Testimonials
             </a>
             <a
               href="#pricing"
-              className="text-sm font-semibold leading-6 text-gray-900"
+              className="text-sm font-semibold leading-6 text-white-900"
             >
               Pricing
             </a>
@@ -53,7 +53,7 @@ export default function Home(): JSX.Element {
           <div className="hidden lg:flex lg:flex-1 lg:justify-end">
             <Link
               href="/login"
-              className="text-sm font-semibold leading-6 text-gray-900"
+              className="text-sm font-semibold leading-6 text-white-900"
             >
               Log in <span aria-hidden="true">&rarr;</span>
             </Link>
@@ -68,10 +68,10 @@ export default function Home(): JSX.Element {
 
         <div className="mx-auto max-w-2xl py-32 sm:py-48 lg:py-56">
           <div className="text-center">
-            <h1 className="text-4xl font-bold tracking-tight text-gray-900 sm:text-6xl">
+            <h1 className="text-4xl font-bold tracking-tight text-white-900 sm:text-6xl">
               Simplify Passport Scanning with ScanPass
             </h1>
-            <p className="mt-6 text-lg leading-8 text-gray-600">
+            <p className="mt-6 text-lg leading-8 text-white-600">
               Automate passport data extraction with our advanced OCR
               technology. Save time, reduce errors, and enhance your workflow.
             </p>
@@ -84,7 +84,7 @@ export default function Home(): JSX.Element {
               </Link>
               <Link
                 href="#features"
-                className="text-sm font-semibold leading-6 text-gray-900"
+                className="text-sm font-semibold leading-6 text-white-900"
               >
                 Learn more <span aria-hidden="true">→</span>
               </Link>
