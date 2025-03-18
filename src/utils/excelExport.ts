@@ -1,32 +1,61 @@
 // src/utils/excelExport.ts
-import { StandardizedData } from "./dataProcessing";
+import { StandardizedData, processPassportData } from "./dataProcessing";
+import { PassportResult } from "@/app/types/scan/Iscan";
+import { enhancePassportDataWithAI, isOpenAIConfigured } from "./openAiService";
 
 /**
- * Generates an Excel file from the standardized data
+ * Genera un archivo Excel a partir de los datos estandarizados
  */
 export function generateExcelFile(data: StandardizedData): File {
-  // We'll use CSV as an intermediate format, which can be easily opened in Excel
+  // Usamos CSV como formato intermedio, que puede abrirse fácilmente en Excel
   const csvContent = generateCSV([data]);
   const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
   return new File([blob], "passport_data.csv", { type: "text/csv" });
 }
 
 /**
- * Generates an Excel file from multiple standardized data entries
+ * Genera un archivo Excel a partir de múltiples entradas de datos estandarizados
  */
-export function generateExcelFileFromMultiple(
-  dataEntries: StandardizedData[]
-): File {
-  const csvContent = generateCSV(dataEntries);
-  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-  return new File([blob], "passport_data.csv", { type: "text/csv" });
+export async function generateExcelFileFromMultiple(
+  rawDataEntries: PassportResult[]
+): Promise<File> {
+  try {
+    // Verificar si se puede usar IA para mejorar los datos
+    let processedEntries: StandardizedData[];
+    const useAI = isOpenAIConfigured();
+
+    if (useAI && rawDataEntries.length > 0) {
+      console.log("Procesando datos con OpenAI...");
+      // Procesar todos los datos en una sola llamada a la API
+      processedEntries = await enhancePassportDataWithAI(rawDataEntries);
+    } else {
+      console.log("Procesando datos sin OpenAI...");
+      // Usar el procesamiento estándar sin IA
+      processedEntries = rawDataEntries.map((entry) =>
+        processPassportData(entry)
+      );
+    }
+
+    const csvContent = generateCSV(processedEntries);
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    return new File([blob], "passport_data.csv", { type: "text/csv" });
+  } catch (error) {
+    console.error("Error al generar archivo Excel:", error);
+    // En caso de error, usar el método estándar sin IA
+    const processedEntries = rawDataEntries.map((entry) =>
+      processPassportData(entry)
+    );
+    const csvContent = generateCSV(processedEntries);
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    return new File([blob], "passport_data.csv", { type: "text/csv" });
+  }
 }
 
 /**
- * Generates CSV content from the standardized data
+ * Genera contenido CSV a partir de los datos estandarizados
  */
 function generateCSV(dataEntries: StandardizedData[]): string {
-  // Define CSV headers according to the specified format
+  // Definir encabezados CSV según el formato especificado
   const headers = [
     "ID",
     "Vto_ID",
@@ -44,16 +73,16 @@ function generateCSV(dataEntries: StandardizedData[]): string {
     "Profesión",
   ];
 
-  // Create the CSV header row
+  // Crear la fila de encabezado CSV
   let csvContent = headers.join(",") + "\r\n";
 
-  // Add data rows
+  // Agregar filas de datos
   dataEntries.forEach((entry) => {
     const row = [
       entry.ID,
       entry.Vto_ID,
       entry.NUMERO_DE_PAIS,
-      `"${entry.Apellido}"`, // Quotes to handle commas in text
+      `"${entry.Apellido}"`, // Comillas para manejar comas en el texto
       `"${entry.Nombre}"`,
       `"${entry.Dirección}"`,
       entry.N,
@@ -73,20 +102,20 @@ function generateCSV(dataEntries: StandardizedData[]): string {
 }
 
 /**
- * Triggers download of the Excel file
+ * Descarga el archivo Excel
  */
 export function downloadExcelFile(file: File): void {
-  // Create a download link
+  // Crear un enlace de descarga
   const url = URL.createObjectURL(file);
   const link = document.createElement("a");
   link.href = url;
   link.setAttribute("download", file.name);
 
-  // Append to body, click, and remove
+  // Agregar al cuerpo, hacer clic y eliminar
   document.body.appendChild(link);
   link.click();
 
-  // Clean up
+  // Limpiar
   setTimeout(() => {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
