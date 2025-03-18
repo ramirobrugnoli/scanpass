@@ -1,68 +1,37 @@
-// src/services/openAIService.ts
-import OpenAI from "openai";
+// src/utils/openAiService.ts
 import { PassportResult } from "@/app/types/scan/Iscan";
 
-// Initialize the OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY,
-  dangerouslyAllowBrowser: true,
-});
-
 /**
- * Enhances passport data using OpenAI's GPT models
+ * Enhances passport data using OpenAI's GPT models via server-side API
  * This can be used to fill missing fields or standardize data formats
  */
 export async function enhancePassportDataWithAI(
   passportData: PassportResult
 ): Promise<PassportResult> {
   try {
-    // Create a prompt that explains what we want
-    const prompt = `
-        I have scanned passport data that may have some fields missing or in inconsistent formats.
-        Please analyze this data and fill in any missing fields with plausible values based on the context.
-        Also standardize date formats to DD/MM/YYYY.
-        Here is the passport data:  ${JSON.stringify(passportData, null, 2)}
-        Please return ONLY a valid JSON object without any markdown formatting, code blocks, or explanations.
-        `;
-
-    // Make the API call to OpenAI
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o", // You can also use "gpt-3.5-turbo" for cost efficiency
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are an assistant that helps process passport data accurately.",
-        },
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
-      temperature: 0.3, // Lower temperature for more consistent outputs
+    // Call our server-side API endpoint instead of OpenAI directly
+    const response = await fetch("/api/openai/enhance", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(passportData),
     });
 
-    // Get the response content
-    const enhancedDataString = completion.choices[0].message.content;
-    console.log("Respuesta de OpenAI:", enhancedDataString);
+    if (!response.ok) {
+      throw new Error(`API responded with status: ${response.status}`);
+    }
 
-    // Parse the JSON from the response
-    // We use a try-catch here as the model might not always return valid JSON
-    try {
-      // Remove markdown code blocks if present
-      const cleanedJsonString = enhancedDataString
-        ? enhancedDataString.replace(/```json\n?|\n?```/g, "")
-        : "";
+    const result = await response.json();
 
-      const enhancedData = JSON.parse(cleanedJsonString) as PassportResult;
-      return enhancedData;
-    } catch (error) {
-      console.error("Failed to parse AI response:", error);
-      // If parsing fails, return the original data
+    if (result.success && result.data) {
+      return result.data as PassportResult;
+    } else {
+      // If there was an issue but the API handled it gracefully
       return passportData;
     }
   } catch (error) {
-    console.error("Error calling OpenAI API:", error);
+    console.error("Error enhancing passport data:", error);
     // In case of API errors, fallback to original data
     return passportData;
   }
@@ -70,7 +39,7 @@ export async function enhancePassportDataWithAI(
 
 /**
  * Fallback function that processes passport data without AI
- * Used when API keys are missing or API calls fail
+ * Used when API calls fail
  */
 export function processPassportDataLocally(
   passportData: PassportResult
