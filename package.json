@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "browser-image-compression": "^2.0.2",
     "firebase": "^11.4.0",
     "firebase-admin": "^13.1.0",
     "googleapis": "^146.0.0",
