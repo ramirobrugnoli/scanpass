@@ -5,15 +5,13 @@ import {
   enhancePassportDataWithAI,
   processPassportDataLocally,
 } from "./openAiService";
+import * as XLSX from "xlsx";
 
 /**
  * Generates an Excel file from a single standardized data entry
  */
 export function generateExcelFile(data: StandardizedData): File {
-  // We'll use CSV as an intermediate format, which can be easily opened in Excel
-  const csvContent = generateCSV([data]);
-  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-  return new File([blob], "passport_data.csv", { type: "text/csv" });
+  return generateExcelFileXLSX([data]);
 }
 
 /**
@@ -23,24 +21,19 @@ export async function generateExcelFileFromMultiple(
   dataEntries: PassportResult[]
 ): Promise<File> {
   try {
-    // Process each passport entry with AI enhancement if available
+    // Process each passport entry with AI enhancement
     const processedEntries: StandardizedData[] = await Promise.all(
       dataEntries.map(async (entry) => {
         let enhancedEntry = entry;
 
-        // Try to enhance with AI if we have the API key configured
-        if (process.env.NEXT_PUBLIC_OPENAI_API_KEY) {
-          try {
-            enhancedEntry = await enhancePassportDataWithAI(entry);
-          } catch (error) {
-            console.warn(
-              "AI enhancement failed, falling back to local processing:",
-              error
-            );
-            enhancedEntry = processPassportDataLocally(entry);
-          }
-        } else {
-          // Fall back to local processing if no API key
+        try {
+          // Try to enhance with AI via our server API
+          enhancedEntry = await enhancePassportDataWithAI(entry);
+        } catch (error) {
+          console.warn(
+            "AI enhancement failed, falling back to local processing:",
+            error
+          );
           enhancedEntry = processPassportDataLocally(entry);
         }
 
@@ -49,70 +42,122 @@ export async function generateExcelFileFromMultiple(
       })
     );
 
-    // Generate CSV from processed entries
-    const csvContent = generateCSV(processedEntries);
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    return new File([blob], "passport_data.csv", { type: "text/csv" });
+    // Generate XLSX from processed entries
+    return generateExcelFileXLSX(processedEntries);
   } catch (error) {
     console.error("Error processing passport data:", error);
     // Fallback to basic processing without AI
     const basicProcessedEntries = dataEntries.map((entry) =>
       processPassportData(entry)
     );
-    const csvContent = generateCSV(basicProcessedEntries);
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    return new File([blob], "passport_data_basic.csv", { type: "text/csv" });
+    return generateExcelFileXLSX(basicProcessedEntries);
   }
 }
 
 /**
- * Generates CSV content from the standardized data
+ * Generates an XLSX file from standardized data
  */
-function generateCSV(dataEntries: StandardizedData[]): string {
-  // Define CSV headers according to the specified format
+function generateExcelFileXLSX(dataEntries: StandardizedData[]): File {
+  // Create workbook and worksheet
+  const workbook = XLSX.utils.book_new();
+
+  // Define headers with spaces between words (as shown in the screenshot)
   const headers = [
     "ID",
-    "Vto_ID",
-    "NUMERO_DE_PAIS",
+    "Vto. ID",
+    "NUMERO DE PAIS",
     "Apellido",
     "Nombre",
     "Dirección",
     "N°",
     "Localidad",
-    "NUMERO_DE_PAIS_2",
+    "NUMERO DE PAIS 2",
     "Sexo",
-    "Estado_Civil",
-    "Fecha_de_Nacimiento",
-    "Lugar_de_nacimiento",
+    "Estado Civil",
+    "Fecha de Nacimiento",
+    "Lugar de nacimiento",
     "Profesión",
   ];
 
-  // Create the CSV header row
-  let csvContent = headers.join(",") + "\r\n";
-
-  // Add data rows
-  dataEntries.forEach((entry) => {
-    const row = [
+  // Create array of data with headers as the first row
+  const data = [
+    headers,
+    ...dataEntries.map((entry) => [
       entry.ID,
       entry.Vto_ID,
       entry.NUMERO_DE_PAIS,
-      `"${entry.Apellido}"`, // Quotes to handle commas in text
-      `"${entry.Nombre}"`,
-      `"${entry.Dirección}"`,
+      entry.Apellido,
+      entry.Nombre,
+      entry.Dirección,
       entry.N,
-      `"${entry.Localidad}"`,
+      entry.Localidad,
       entry.NUMERO_DE_PAIS_2,
       entry.Sexo,
-      `"${entry.Estado_Civil}"`,
+      entry.Estado_Civil,
       entry.Fecha_de_Nacimiento,
-      `"${entry.Lugar_de_nacimiento}"`,
-      `"${entry.Profesión}"`,
-    ];
+      entry.Lugar_de_nacimiento,
+      entry.Profesión,
+    ]),
+  ];
 
-    csvContent += row.join(",") + "\r\n";
+  // Create worksheet from data
+  const worksheet = XLSX.utils.aoa_to_sheet(data);
+
+  // Set column widths (adjust as needed to match your desired format)
+  const colWidths = [
+    { wch: 10 }, // ID
+    { wch: 10 }, // Vto. ID
+    { wch: 15 }, // NUMERO DE PAIS
+    { wch: 20 }, // Apellido
+    { wch: 20 }, // Nombre
+    { wch: 25 }, // Dirección
+    { wch: 5 }, // N°
+    { wch: 15 }, // Localidad
+    { wch: 15 }, // NUMERO DE PAIS 2
+    { wch: 5 }, // Sexo
+    { wch: 12 }, // Estado Civil
+    { wch: 19 }, // Fecha de Nacimiento
+    { wch: 20 }, // Lugar de nacimiento
+    { wch: 15 }, // Profesión
+  ];
+
+  worksheet["!cols"] = colWidths;
+
+  // Apply formatting to header row (bold and filled background)
+  const headerRange = XLSX.utils.decode_range(worksheet["!ref"] || "A1:N1");
+
+  // Create header style (bold text with border)
+  const headerStyle = {
+    font: { bold: true },
+    fill: { fgColor: { rgb: "EFEFEF" } }, // Light gray background
+    border: {
+      top: { style: "thin" },
+      bottom: { style: "thin" },
+      left: { style: "thin" },
+      right: { style: "thin" },
+    },
+    alignment: { horizontal: "center" },
+  };
+
+  // Apply styles to header cells
+  for (let col = headerRange.s.c; col <= headerRange.e.c; col++) {
+    const cellAddress = XLSX.utils.encode_cell({ r: 0, c: col });
+    if (!worksheet[cellAddress]) worksheet[cellAddress] = { t: "s", v: "" };
+    worksheet[cellAddress].s = headerStyle;
+  }
+
+  // Add worksheet to workbook
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Passport Data");
+
+  // Generate XLSX file
+  const excelBuffer = XLSX.write(workbook, { type: "array", bookType: "xlsx" });
+  const blob = new Blob([excelBuffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   });
 
-  return csvContent;
+  return new File([blob], "passport_data.xlsx", {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
 }
 
 /**
