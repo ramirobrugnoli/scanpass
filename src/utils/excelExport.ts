@@ -1,61 +1,75 @@
 // src/utils/excelExport.ts
 import { StandardizedData, processPassportData } from "./dataProcessing";
 import { PassportResult } from "@/app/types/scan/Iscan";
-import { enhancePassportDataWithAI, isOpenAIConfigured } from "./openAiService";
+import {
+  enhancePassportDataWithAI,
+  processPassportDataLocally,
+} from "./openAiService";
 
 /**
- * Genera un archivo Excel a partir de los datos estandarizados
+ * Generates an Excel file from a single standardized data entry
  */
 export function generateExcelFile(data: StandardizedData): File {
-  // Usamos CSV como formato intermedio, que puede abrirse fácilmente en Excel
+  // We'll use CSV as an intermediate format, which can be easily opened in Excel
   const csvContent = generateCSV([data]);
   const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
   return new File([blob], "passport_data.csv", { type: "text/csv" });
 }
 
 /**
- * Genera un archivo Excel a partir de múltiples entradas de datos estandarizados
+ * Processes raw passport data and then generates an Excel file from multiple entries
  */
 export async function generateExcelFileFromMultiple(
-  rawDataEntries: PassportResult[]
+  dataEntries: PassportResult[]
 ): Promise<File> {
   try {
-    // Verificar si se puede usar IA para mejorar los datos
-    let processedEntries: StandardizedData[];
-    const useAI = isOpenAIConfigured();
+    // Process each passport entry with AI enhancement if available
+    const processedEntries: StandardizedData[] = await Promise.all(
+      dataEntries.map(async (entry) => {
+        let enhancedEntry = entry;
 
-    if (useAI && rawDataEntries.length > 0) {
-      console.log("Procesando datos con OpenAI...");
-      // Procesar todos los datos en una sola llamada a la API
-      processedEntries = await enhancePassportDataWithAI(rawDataEntries);
-    } else {
-      console.log("Procesando datos sin OpenAI...");
-      // Usar el procesamiento estándar sin IA
-      processedEntries = rawDataEntries.map((entry) =>
-        processPassportData(entry)
-      );
-    }
+        // Try to enhance with AI if we have the API key configured
+        if (process.env.NEXT_PUBLIC_OPENAI_API_KEY) {
+          try {
+            enhancedEntry = await enhancePassportDataWithAI(entry);
+          } catch (error) {
+            console.warn(
+              "AI enhancement failed, falling back to local processing:",
+              error
+            );
+            enhancedEntry = processPassportDataLocally(entry);
+          }
+        } else {
+          // Fall back to local processing if no API key
+          enhancedEntry = processPassportDataLocally(entry);
+        }
 
+        // Convert to standardized format
+        return processPassportData(enhancedEntry);
+      })
+    );
+
+    // Generate CSV from processed entries
     const csvContent = generateCSV(processedEntries);
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     return new File([blob], "passport_data.csv", { type: "text/csv" });
   } catch (error) {
-    console.error("Error al generar archivo Excel:", error);
-    // En caso de error, usar el método estándar sin IA
-    const processedEntries = rawDataEntries.map((entry) =>
+    console.error("Error processing passport data:", error);
+    // Fallback to basic processing without AI
+    const basicProcessedEntries = dataEntries.map((entry) =>
       processPassportData(entry)
     );
-    const csvContent = generateCSV(processedEntries);
+    const csvContent = generateCSV(basicProcessedEntries);
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    return new File([blob], "passport_data.csv", { type: "text/csv" });
+    return new File([blob], "passport_data_basic.csv", { type: "text/csv" });
   }
 }
 
 /**
- * Genera contenido CSV a partir de los datos estandarizados
+ * Generates CSV content from the standardized data
  */
 function generateCSV(dataEntries: StandardizedData[]): string {
-  // Definir encabezados CSV según el formato especificado
+  // Define CSV headers according to the specified format
   const headers = [
     "ID",
     "Vto_ID",
@@ -73,16 +87,16 @@ function generateCSV(dataEntries: StandardizedData[]): string {
     "Profesión",
   ];
 
-  // Crear la fila de encabezado CSV
+  // Create the CSV header row
   let csvContent = headers.join(",") + "\r\n";
 
-  // Agregar filas de datos
+  // Add data rows
   dataEntries.forEach((entry) => {
     const row = [
       entry.ID,
       entry.Vto_ID,
       entry.NUMERO_DE_PAIS,
-      `"${entry.Apellido}"`, // Comillas para manejar comas en el texto
+      `"${entry.Apellido}"`, // Quotes to handle commas in text
       `"${entry.Nombre}"`,
       `"${entry.Dirección}"`,
       entry.N,
@@ -102,20 +116,20 @@ function generateCSV(dataEntries: StandardizedData[]): string {
 }
 
 /**
- * Descarga el archivo Excel
+ * Triggers download of the Excel file
  */
 export function downloadExcelFile(file: File): void {
-  // Crear un enlace de descarga
+  // Create a download link
   const url = URL.createObjectURL(file);
   const link = document.createElement("a");
   link.href = url;
   link.setAttribute("download", file.name);
 
-  // Agregar al cuerpo, hacer clic y eliminar
+  // Append to body, click, and remove
   document.body.appendChild(link);
   link.click();
 
-  // Limpiar
+  // Clean up
   setTimeout(() => {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);

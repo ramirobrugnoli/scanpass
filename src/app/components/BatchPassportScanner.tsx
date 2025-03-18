@@ -1,4 +1,3 @@
-// src/app/components/BatchPassportScanner.tsx
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
@@ -6,12 +5,11 @@ import { useDropzone } from "react-dropzone";
 import Image from "next/image";
 import { PassportResult } from "../types/scan/Iscan";
 import { useImageCompression } from "@/utils/imageCompression";
-import { StandardizedData } from "@/utils/dataProcessing";
+import { processPassportData, StandardizedData } from "@/utils/dataProcessing";
 import {
   generateExcelFileFromMultiple,
   downloadExcelFile,
 } from "@/utils/excelExport";
-import { isOpenAIConfigured } from "@/utils/openAiService";
 
 interface ScanStatus {
   file: File;
@@ -22,7 +20,7 @@ interface ScanStatus {
   preview?: string;
 }
 
-// Número máximo de solicitudes concurrentes
+// Maximum number of concurrent requests
 const MAX_CONCURRENT_REQUESTS = 5;
 
 export default function BatchPassportScanner() {
@@ -30,14 +28,8 @@ export default function BatchPassportScanner() {
   const [processing, setProcessing] = useState<boolean>(false);
   const [completed, setCompleted] = useState<number>(0);
   const [failed, setFailed] = useState<number>(0);
-  const [aiEnabled, setAiEnabled] = useState<boolean>(false);
-  const [exportLoading, setExportLoading] = useState<boolean>(false);
+  const [exporting, setExporting] = useState<boolean>(false);
   const { compressImage } = useImageCompression();
-
-  // Verificar si OpenAI está configurado
-  useEffect(() => {
-    setAiEnabled(isOpenAIConfigured());
-  }, []);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const newFiles = acceptedFiles.map((file) => ({
@@ -58,13 +50,13 @@ export default function BatchPassportScanner() {
     maxSize: 10 * 1024 * 1024, // 10MB
   });
 
-  // Procesar archivos en lotes
+  // Process files in batches
   const processFiles = useCallback(async () => {
     if (processing) return;
 
     setProcessing(true);
 
-    // Obtener todos los archivos pendientes
+    // Get all pending files
     const pendingFiles = files.filter((f) => f.status === "pending");
 
     if (pendingFiles.length === 0) {
@@ -72,7 +64,7 @@ export default function BatchPassportScanner() {
       return;
     }
 
-    // Procesar archivos en lotes utilizando un patrón de semáforo
+    // Process files in batches using a semaphore pattern
     const updateFileStatus = (index: number, updates: Partial<ScanStatus>) => {
       setFiles((prev) =>
         prev.map((file, i) => (i === index ? { ...file, ...updates } : file))
@@ -85,7 +77,7 @@ export default function BatchPassportScanner() {
     const processNextFile = async () => {
       if (fileIndex >= pendingFiles.length) return;
 
-      // Encontrar el índice en el array original de archivos
+      // Find the index in the original files array
       const originalIndex = files.findIndex(
         (f) => f.file === pendingFiles[fileIndex].file
       );
@@ -97,14 +89,14 @@ export default function BatchPassportScanner() {
       updateFileStatus(originalIndex, { status: "processing" });
 
       try {
-        // Comprimir la imagen (si es una imagen)
+        // Compress the image (if it's an image)
         const compressedFile = await compressImage(files[originalIndex].file);
 
-        // Crear form data
+        // Create form data
         const formData = new FormData();
         formData.append("file", compressedFile);
 
-        // Enviar solicitud a la API
+        // Send request to API
         const response = await fetch("/api/scan", {
           method: "POST",
           body: formData,
@@ -112,40 +104,44 @@ export default function BatchPassportScanner() {
 
         if (!response.ok) {
           const errorData = await response.json();
-          throw new Error(errorData.error || "Error escaneando documento");
+          throw new Error(errorData.error || "Error scanning document");
         }
 
         const data = await response.json();
         const rawResult = data.data;
 
+        // Process the data through our standardization service
+        const processedResult = processPassportData(rawResult);
+
         updateFileStatus(originalIndex, {
           status: "completed",
           result: rawResult,
+          processedResult: processedResult,
         });
         setCompleted((prev) => prev + 1);
       } catch (error) {
-        console.error("Error procesando archivo:", error);
+        console.error("Error processing file:", error);
         updateFileStatus(originalIndex, {
           status: "error",
-          error: error instanceof Error ? error.message : "Error desconocido",
+          error: error instanceof Error ? error.message : "Unknown error",
         });
         setFailed((prev) => prev + 1);
       } finally {
         activeRequests--;
 
-        // Si podemos procesar más archivos, hacerlo
+        // If we can process more files, do so
         if (activeRequests < MAX_CONCURRENT_REQUESTS) {
           processNextFile();
         }
 
-        // Si no hay más solicitudes activas y no hay más archivos para procesar, hemos terminado
+        // If no more active requests and no more files to process, we're done
         if (activeRequests === 0 && fileIndex >= pendingFiles.length) {
           setProcessing(false);
         }
       }
     };
 
-    // Iniciar lote inicial de solicitudes
+    // Start initial batch of requests
     const initialBatchSize = Math.min(
       MAX_CONCURRENT_REQUESTS,
       pendingFiles.length
@@ -155,7 +151,7 @@ export default function BatchPassportScanner() {
     }
   }, [files, processing, compressImage]);
 
-  // Limpiar URLs de objetos al desmontar el componente
+  // Clean up object URLs when component unmounts
   useEffect(() => {
     return () => {
       files.forEach((file) => {
@@ -164,24 +160,24 @@ export default function BatchPassportScanner() {
     };
   }, [files]);
 
-  // Exportar a CSV (funcionalidad existente)
+  // Export to CSV (raw data)
   const exportToCSV = useCallback(() => {
-    // Obtener todos los escaneos completados
+    // Get all completed scans
     const completedScans = files
       .filter((f) => f.status === "completed" && f.result)
-      .map((f) => f.result);
+      .map((f) => f.result as PassportResult);
 
     if (completedScans.length === 0) {
-      alert("No hay escaneos completados para exportar");
+      alert("No completed scans to export");
       return;
     }
 
-    // Crear contenido CSV
+    // Create CSV content
     const headers = Object.keys(completedScans[0] || {}).join(",");
     const rows = completedScans.map((scan) =>
       Object.values(scan || {})
         .map((value) =>
-          // Manejar valores con comas envolviéndolos entre comillas
+          // Handle values with commas by wrapping in quotes
           typeof value === "string" && value.includes(",")
             ? `"${value}"`
             : value
@@ -193,7 +189,7 @@ export default function BatchPassportScanner() {
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
 
-    // Crear enlace de descarga y activar clic
+    // Create download link and trigger click
     const link = document.createElement("a");
     link.href = url;
     link.setAttribute(
@@ -204,44 +200,45 @@ export default function BatchPassportScanner() {
     link.click();
     document.body.removeChild(link);
 
-    // Limpiar
+    // Clean up
     URL.revokeObjectURL(url);
   }, [files]);
 
-  // Exportar a Excel con procesamiento de IA
+  // Export to Excel with AI enhancement (formatted data)
   const exportToExcel = useCallback(async () => {
-    // Obtener todos los escaneos completados
-    const completedScans = files
-      .filter((f) => f.status === "completed" && f.result)
-      .map((f) => f.result as PassportResult);
+    setExporting(true);
 
-    if (completedScans.length === 0) {
-      alert("No hay escaneos completados para exportar");
-      return;
-    }
-
-    setExportLoading(true);
     try {
-      // Usar nuestra utilidad de exportación a Excel con procesamiento de IA
+      // Get all completed scans
+      const completedScans = files
+        .filter((f) => f.status === "completed" && f.result)
+        .map((f) => f.result as PassportResult);
+
+      if (completedScans.length === 0) {
+        alert("No completed scans to export");
+        return;
+      }
+
+      // Use our Excel export utility with AI enhancement
       const excelFile = await generateExcelFileFromMultiple(completedScans);
       downloadExcelFile(excelFile);
     } catch (error) {
-      console.error("Error al exportar a Excel:", error);
+      console.error("Error exporting to Excel:", error);
       alert(
-        "Error al generar el archivo Excel. Por favor, intente nuevamente."
+        `Export error: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
       );
     } finally {
-      setExportLoading(false);
+      setExporting(false);
     }
   }, [files]);
 
   return (
     <div className="w-full max-w-6xl mx-auto p-4">
-      <h2 className="text-2xl font-bold mb-4">
-        Escáner de Pasaportes por Lotes
-      </h2>
+      <h2 className="text-2xl font-bold mb-4">Batch Passport Scanner</h2>
 
-      {/* Área de carga */}
+      {/* Upload area */}
       <div
         {...getRootProps()}
         className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors mb-6 ${
@@ -253,19 +250,18 @@ export default function BatchPassportScanner() {
         <input {...getInputProps()} />
         <div>
           <p className="text-lg">
-            Arrastra y suelta imágenes de pasaportes aquí, o haz clic para
-            seleccionar
+            Drag and drop passport images here, or click to select
           </p>
           <p className="text-sm text-black-500 mt-2">
-            Admite JPG, PNG, PDF (hasta 10MB cada uno)
+            Supports JPG, PNG, PDF (up to 10MB each)
           </p>
           <p className="text-sm text-black-500 mt-1">
-            {files.length} archivos seleccionados
+            {files.length} files selected
           </p>
         </div>
       </div>
 
-      {/* Acciones */}
+      {/* Actions */}
       <div className="flex flex-wrap gap-4 mb-6">
         <button
           onClick={processFiles}
@@ -275,7 +271,7 @@ export default function BatchPassportScanner() {
           }
           className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-indigo-300"
         >
-          {processing ? "Procesando..." : "Procesar todos los archivos"}
+          {processing ? "Processing..." : "Process All Files"}
         </button>
 
         <button
@@ -283,20 +279,18 @@ export default function BatchPassportScanner() {
           disabled={files.filter((f) => f.status === "completed").length === 0}
           className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300"
         >
-          Exportar Datos Crudos (CSV)
+          Export Raw (CSV)
         </button>
 
         <button
           onClick={exportToExcel}
           disabled={
-            files.filter((f) => f.status === "completed").length === 0 ||
-            exportLoading
+            exporting ||
+            files.filter((f) => f.status === "completed").length === 0
           }
           className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-green-300"
         >
-          {exportLoading
-            ? "Procesando con IA..."
-            : `Exportar Formateado (Excel)${aiEnabled ? " con IA" : ""}`}
+          {exporting ? "Processing & Exporting..." : "Export Formatted (Excel)"}
         </button>
 
         <button
@@ -304,48 +298,35 @@ export default function BatchPassportScanner() {
           disabled={files.length === 0}
           className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-300"
         >
-          Eliminar Todo
+          Clear All
         </button>
       </div>
 
-      {/* Estado de IA */}
-      {aiEnabled && (
-        <div className="mb-6 p-2 bg-indigo-50 border border-indigo-200 rounded-md">
-          <div className="flex items-center">
-            <div className="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
-            <p className="text-sm text-indigo-700">
-              Corrección inteligente con IA activada - Se usará al exportar
-              Excel
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Progreso */}
+      {/* Progress */}
       {(processing || completed > 0 || failed > 0) && (
         <div className="mb-6 p-4 border rounded-md bg-black-50">
-          <h3 className="font-semibold mb-2">Progreso</h3>
+          <h3 className="font-semibold mb-2">Progress</h3>
           <div className="flex flex-wrap gap-4">
             <div>
               <span className="text-black-600">Total:</span> {files.length}
             </div>
             <div>
-              <span className="text-black-600">Pendientes:</span>{" "}
+              <span className="text-black-600">Pending:</span>{" "}
               {files.filter((f) => f.status === "pending").length}
             </div>
             <div>
-              <span className="text-black-600">Procesando:</span>{" "}
+              <span className="text-black-600">Processing:</span>{" "}
               {files.filter((f) => f.status === "processing").length}
             </div>
             <div>
-              <span className="text-green-600">Completados:</span> {completed}
+              <span className="text-green-600">Completed:</span> {completed}
             </div>
             <div>
-              <span className="text-red-600">Fallidos:</span> {failed}
+              <span className="text-red-600">Failed:</span> {failed}
             </div>
           </div>
 
-          {/* Barra de progreso */}
+          {/* Progress bar */}
           {files.length > 0 && (
             <div className="w-full bg-black-200 rounded-full h-2.5 mt-2">
               <div
@@ -359,23 +340,26 @@ export default function BatchPassportScanner() {
         </div>
       )}
 
-      {/* Lista de archivos */}
+      {/* File list */}
       {files.length > 0 && (
         <div className="border rounded-md overflow-hidden">
           <table className="min-w-full divide-y divide-black-200">
             <thead className="bg-black-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-black-500 uppercase tracking-wider">
-                  Vista previa
+                  Preview
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-black-500 uppercase tracking-wider">
-                  Nombre de archivo
+                  Filename
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-black-500 uppercase tracking-wider">
-                  Estado
+                  Status
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-black-500 uppercase tracking-wider">
-                  Resultados
+                  Results
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-black-500 uppercase tracking-wider">
+                  Processed Data
                 </th>
               </tr>
             </thead>
@@ -387,7 +371,7 @@ export default function BatchPassportScanner() {
                       <div className="h-16 w-24 relative">
                         <Image
                           src={file.preview}
-                          alt="Vista previa"
+                          alt="Preview"
                           fill
                           className="object-contain"
                         />
@@ -436,17 +420,31 @@ export default function BatchPassportScanner() {
                   </td>
                   <td className="px-6 py-4">
                     {file.status === "completed" && file.result && (
+                      <div className="max-h-32 overflow-y-auto text-xs">
+                        {Object.entries(file.result).map(([key, value]) => (
+                          <div key={key} className="mb-1">
+                            <span className="font-medium">{key}:</span>{" "}
+                            {value as string}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-6 py-4">
+                    {file.status === "completed" && file.processedResult && (
                       <details className="text-xs">
                         <summary className="cursor-pointer font-medium text-indigo-600">
-                          Ver datos extraídos
+                          View Formatted Data
                         </summary>
                         <div className="mt-2 max-h-32 overflow-y-auto">
-                          {Object.entries(file.result).map(([key, value]) => (
-                            <div key={key} className="mb-1">
-                              <span className="font-medium">{key}:</span>{" "}
-                              {value as string}
-                            </div>
-                          ))}
+                          {Object.entries(file.processedResult).map(
+                            ([key, value]) => (
+                              <div key={key} className="mb-1">
+                                <span className="font-medium">{key}:</span>{" "}
+                                {value?.toString() || ""}
+                              </div>
+                            )
+                          )}
                         </div>
                       </details>
                     )}
