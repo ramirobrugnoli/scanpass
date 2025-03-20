@@ -312,12 +312,6 @@ export default function BatchPassportScanner() {
     setDuplicates(0);
   };
 
-  // Debug helper - show processed IDs
-  const showProcessedIds = () => {
-    console.log("DNIs procesados:", [...processedIdsRef.current]);
-    console.log("Total DNIs procesados:", processedIdsRef.current.size);
-  };
-
   return (
     <div className="w-full max-w-6xl mx-auto p-4">
       <h2 className="text-2xl font-bold mb-4">Batch Passport Scanner</h2>
