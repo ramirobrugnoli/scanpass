@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useDropzone } from "react-dropzone";
 import Image from "next/image";
 import { PassportResult } from "../types/scan/Iscan";
@@ -31,7 +31,10 @@ export default function BatchPassportScanner() {
   const [failed, setFailed] = useState<number>(0);
   const [duplicates, setDuplicates] = useState<number>(0); // Track duplicate count
   const [exporting, setExporting] = useState<boolean>(false);
-  const [processedIds, setProcessedIds] = useState<Set<string>>(new Set()); // Track processed document IDs
+
+  // Use a ref to track processed IDs to avoid state update delays
+  const processedIdsRef = useRef<Set<string>>(new Set());
+
   const { compressImage } = useImageCompression();
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
@@ -93,11 +96,13 @@ export default function BatchPassportScanner() {
 
       try {
         // Compress the image (if it's an image)
-        const compressedResult = await compressImage(files[originalIndex].file);
+        const { compressedFile } = await compressImage(
+          files[originalIndex].file
+        );
 
         // Create form data
         const formData = new FormData();
-        formData.append("file", compressedResult.compressedFile);
+        formData.append("file", compressedFile);
 
         // Send request to API
         const response = await fetch("/api/scan", {
@@ -116,19 +121,31 @@ export default function BatchPassportScanner() {
         // Extract document ID
         const documentId = rawResult.document_id;
 
-        // Check if this document ID has already been processed
-        if (documentId && processedIds.has(documentId)) {
-          // This is a duplicate
+        // Check for duplicates using both ref and file list
+        // This is critical for real-time duplicate detection
+        const isDuplicate = checkForDuplicate(documentId, files);
+
+        if (isDuplicate) {
+          // This is a duplicate - update state immediately
+          console.log(`Duplicate detected for ID: ${documentId}`);
+
           updateFileStatus(originalIndex, {
             status: "duplicate",
             result: rawResult,
             documentId,
             error: "Documento duplicado - ID ya procesado previamente",
           });
+
+          // Increment the duplicate counter
           setDuplicates((prev) => prev + 1);
         } else {
           // Process the data through our standardization service
           const processedResult = processPassportData(rawResult);
+
+          // Add to processed IDs BEFORE updating state to prevent race conditions
+          if (documentId) {
+            addToProcessedIds(documentId);
+          }
 
           updateFileStatus(originalIndex, {
             status: "completed",
@@ -136,11 +153,6 @@ export default function BatchPassportScanner() {
             processedResult,
             documentId,
           });
-
-          // Add the document ID to the set of processed IDs
-          if (documentId) {
-            setProcessedIds((prev) => new Set(prev).add(documentId));
-          }
 
           setCompleted((prev) => prev + 1);
         }
@@ -174,7 +186,39 @@ export default function BatchPassportScanner() {
     for (let i = 0; i < initialBatchSize; i++) {
       processNextFile();
     }
-  }, [files, processing, compressImage, processedIds]);
+  }, [files, processing, compressImage]);
+
+  // Helper function to check for duplicates
+  const checkForDuplicate = (
+    documentId: string | undefined,
+    currentFiles: ScanStatus[]
+  ): boolean => {
+    if (!documentId) return false;
+
+    // Check if ID is in our ref
+    if (processedIdsRef.current.has(documentId)) {
+      return true;
+    }
+
+    // Also check completed files (for immediate duplicate detection)
+    return currentFiles.some(
+      (f) =>
+        f.documentId === documentId &&
+        (f.status === "completed" || f.status === "duplicate")
+    );
+  };
+
+  // Helper function to add to processed IDs
+  const addToProcessedIds = (documentId: string): void => {
+    // Log for debugging
+    console.log(`DNI procesado: ${documentId}`);
+    console.log(`DNIs antes: ${[...processedIdsRef.current]}`);
+
+    // Add to our ref for immediate effect
+    processedIdsRef.current.add(documentId);
+
+    console.log(`DNIs después: ${[...processedIdsRef.current]}`);
+  };
 
   // Clean up object URLs when component unmounts
   useEffect(() => {
@@ -262,10 +306,16 @@ export default function BatchPassportScanner() {
   // Clear processed IDs to reset duplicate detection
   const handleReset = () => {
     setFiles([]);
-    setProcessedIds(new Set());
+    processedIdsRef.current = new Set(); // Reset the ref
     setCompleted(0);
     setFailed(0);
     setDuplicates(0);
+  };
+
+  // Debug helper - show processed IDs
+  const showProcessedIds = () => {
+    console.log("DNIs procesados:", [...processedIdsRef.current]);
+    console.log("Total DNIs procesados:", processedIdsRef.current.size);
   };
 
   return (
@@ -406,7 +456,7 @@ export default function BatchPassportScanner() {
               {files.map((file, index) => (
                 <tr
                   key={index}
-                  className={file.status === "duplicate" ? "bg-red-50" : ""}
+                  className={file.status === "duplicate" ? "bg-red-300" : ""}
                 >
                   <td className="px-6 py-4 whitespace-nowrap">
                     {file.preview && (
@@ -448,11 +498,11 @@ export default function BatchPassportScanner() {
                       }
                       ${
                         file.status === "duplicate"
-                          ? "bg-red-100 text-red-800"
+                          ? "bg-red-600 text-red-800"
                           : ""
                       }
                       ${
-                        file.status === "error" ? "bg-red-100 text-red-800" : ""
+                        file.status === "error" ? "bg-red-600 text-red-800" : ""
                       }
                     `}
                     >

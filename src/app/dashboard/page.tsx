@@ -92,7 +92,7 @@ export default function Dashboard(): JSX.Element {
                   Your passport scanning application
                 </p>
                 <Link
-                  href="/scan"
+                  href="/multiplescan"
                   className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
                 >
                   Start Scanning
