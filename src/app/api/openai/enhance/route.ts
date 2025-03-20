@@ -29,14 +29,14 @@ export async function POST(request: NextRequest) {
       
       La dirección debe:
       - Incluir una calle real que exista en ${country}
-      - Tener un número de calle aleatorio pero realista (generalmente entre 1-150)
+      - Tener un número de calle aleatorio pero realista (numero random entre 1-5000)
       - Ser formateada según las convenciones de direcciones de ${country}
       - SER COMPLETAMENTE ÚNICA (NO usar direcciones genéricas o muy conocidas)
       
       En el formato final del Excel:
-      - "Localidad" será siempre el país de residencia (${country}) en CASTELLANO. 
+      - "Localidad" será siempre el país de residencia (${country}) en CASTELLANO y SIN TILDES. 
       Por ejemplo: United States -> ESTADOS UNIDOS, France -> FRANCIA, etc.
-      - "Lugar de nacimiento" será ÚNICAMENTE el país de origen (sin barrios, ciudades o regiones) también en CASTELLANO
+      - "Lugar de nacimiento" será ÚNICAMENTE el país de origen (sin barrios, ciudades o regiones) también en CASTELLANO y SIN TILDES.
     Por ejemplo: "ESTADOS UNIDOS", "ESPAÑA", "ARGENTINA", etc.
       
       Datos del pasaporte: ${JSON.stringify(passportData, null, 2)}
