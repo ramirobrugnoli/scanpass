@@ -1,75 +1,102 @@
+// src/app/api/openai/enhance/route.ts - versión final
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { PassportResult } from "@/app/types/scan/Iscan";
 
-// Initialize the OpenAI client server-side
+// Inicializar el cliente OpenAI del lado del servidor
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY, // Use server-side environment variable
+  apiKey: process.env.OPENAI_API_KEY, // Usar variable de entorno del lado del servidor
 });
 
 /**
- * API route to enhance passport data using OpenAI
+ * Ruta API para mejorar datos de pasaporte utilizando OpenAI
+ * Incluye generación de direcciones realistas y únicas para el país específico
  */
 export async function POST(request: NextRequest) {
   try {
-    // Parse the request body
+    // Analizar el cuerpo de la solicitud
     const passportData = (await request.json()) as PassportResult;
 
-    // Create a prompt that explains what we want
+    // Determinar el país del pasaporte (nacionalidad o país de emisión)
+    const country = passportData.nationality || passportData.country || "";
+
+    // Crear un prompt que explique lo que queremos
     const prompt = `
-      I have scanned passport data that may have some fields missing or in inconsistent formats.
-      Please analyze this data and fill in any missing fields with plausible values based on the context.
-      Also standardize date formats to DD/MM/YYYY.
-      Here is the passport data: ${JSON.stringify(passportData, null, 2)}
-      Please return ONLY a valid JSON object without any markdown formatting, code blocks, or explanations.
+      Analiza estos datos de pasaporte y mejóralos:
+      1. Rellena campos faltantes con valores plausibles basados en el contexto
+      2. Estandariza formatos de fecha a DD/MM/YYYY
+      3. Genera una dirección ÚNICA Y REALISTA para una persona que vive en ${country}
+      
+      La dirección debe:
+      - Incluir una calle real que exista en ${country}
+      - Tener un número de calle aleatorio pero realista (generalmente entre 1-150)
+      - Ser formateada según las convenciones de direcciones de ${country}
+      - SER COMPLETAMENTE ÚNICA (NO usar direcciones genéricas o muy conocidas)
+      
+      En el formato final del Excel:
+      - "Localidad" será siempre el país de residencia (${country}) en CASTELLANO. 
+      Por ejemplo: United States -> ESTADOS UNIDOS, France -> FRANCIA, etc.
+      - "Lugar de nacimiento" será ÚNICAMENTE el país de origen (sin barrios, ciudades o regiones) también en CASTELLANO
+    Por ejemplo: "ESTADOS UNIDOS", "ESPAÑA", "ARGENTINA", etc.
+      
+      Datos del pasaporte: ${JSON.stringify(passportData, null, 2)}
+      
+      Devuelve SOLO un objeto JSON válido que incluya los campos originales mejorados y estos campos adicionales:
+      - "street_address": la calle con formato apropiado (DEBE SER ÚNICA y específica)
+      - "address_number": el número de la dirección
+      
+      NO incluyas explicaciones, código de formato markdown, o cualquier cosa que no sea el objeto JSON.
     `;
 
-    // Make the API call to OpenAI
+    // Realizar la llamada a la API de OpenAI
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o", // You can also use "gpt-3.5-turbo" for cost efficiency
+      model: "gpt-4o", // Puedes usar "gpt-3.5-turbo" para mayor eficiencia en costos
       messages: [
         {
           role: "system",
           content:
-            "You are an assistant that helps process passport data accurately.",
+            "Eres un asistente especializado en procesar datos de pasaportes y generar direcciones realistas ÚNICAS específicas para cada país. Cada dirección debe ser completamente única y verosímil. Debes devolver SOLO datos en formato JSON sin ningún tipo de formateo adicional.",
         },
         {
           role: "user",
           content: prompt,
         },
       ],
-      temperature: 0.3, // Lower temperature for more consistent outputs
+      temperature: 0.7, // Temperatura más alta para asegurar variedad/unicidad
     });
 
-    // Get the response content
+    // Obtener el contenido de la respuesta
     const enhancedDataString = completion.choices[0].message.content;
 
-    // Parse the JSON from the response
+    // Analizar el JSON de la respuesta
     try {
-      // Remove markdown code blocks if present
+      // Eliminar bloques de código markdown si están presentes
       const cleanedJsonString = enhancedDataString
         ? enhancedDataString.replace(/```json\n?|\n?```/g, "")
         : "";
 
-      const enhancedData = JSON.parse(cleanedJsonString) as PassportResult;
+      const enhancedData = JSON.parse(cleanedJsonString) as PassportResult & {
+        street_address?: string;
+        address_number?: string;
+      };
 
-      // Return the enhanced data
+      // Devolver los datos mejorados
       return NextResponse.json({
         success: true,
         data: enhancedData,
       });
     } catch (error) {
-      console.error("Failed to parse AI response:", error);
-      // If parsing fails, return the original data
+      console.error("Error al analizar respuesta de IA:", error);
+      // Si falla el análisis, devolver los datos originales
       return NextResponse.json({
         success: true,
         data: passportData,
       });
     }
   } catch (error) {
-    console.error("Error calling OpenAI API:", error);
+    console.error("Error al llamar a la API de OpenAI:", error);
     return NextResponse.json(
-      { error: "Error enhancing passport data" },
+      { error: "Error al mejorar datos de pasaporte" },
       { status: 500 }
     );
   }

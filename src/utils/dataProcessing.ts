@@ -4,6 +4,7 @@ import { PassportResult } from "@/app/types/scan/Iscan";
 // Define the mapping table from country to country code
 export const COUNTRY_CODE_MAP: Record<string, number> = {
   ALEMANIA: 0,
+  DEUTSCH: 0,
   ARGENTINA: 1,
   ARMENIA: 1,
   AUSTRALIA: 2,
@@ -16,6 +17,7 @@ export const COUNTRY_CODE_MAP: Record<string, number> = {
   CHILE: 9,
   CHINA: 10,
   COLOMBIA: 11,
+  COLOMBIANA: 11,
   CONGO: 12,
   "COREA DEMOCRATICA": 13,
   "COREA REPUBLICANA": 14,
@@ -30,9 +32,18 @@ export const COUNTRY_CODE_MAP: Record<string, number> = {
   ESLOVENIA: 23,
   ESPAÑA: 24,
   "ESTADOS UNIDOS": 25,
+  USA: 25,
+  "U.S.A.": 25,
+  "U.S.A": 25,
+  "EE.UU.": 25,
+  "UNITED STATES": 25,
+  "UNITED STATES OF AMERICA": 25,
+  "UNITED STATES OF AMER": 25,
+  "UNITED STATES OF AME": 25,
   FILIPINAS: 26,
   FINLANDIA: 27,
   FRANCIA: 28,
+  FRANÇAISE: 28,
   GRECIA: 29,
   GUATEMALA: 30,
   GUYANA: 31,
@@ -90,29 +101,16 @@ export const COUNTRY_CODE_MAP: Record<string, number> = {
   VIETNAM: 83,
 };
 
-// Sample addresses for each country - in a full implementation, you might load these from a larger database
-const SAMPLE_ADDRESSES: Record<string, string[]> = {
-  ALEMANIA: ["Rosenstrasse 84", "Bahnhofstrasse 66", "Hauptstrasse 124"],
-  ESPAÑA: ["Calle Mayor 73", "Avenida Central 17", "Calle Real 125"],
-  "ESTADOS UNIDOS": ["Main Street 35", "Park Avenue 140", "Lake Road 77"],
-  BRASIL: ["Rua Central 92", "Avenida Principal 123", "Rua Comercial 88"],
-  IRLANDA: ["Church Avenue 126", "Lake Road 115", "Park Road 123"],
-  AUSTRALIA: ["School Road 123", "Main Street 85", "Boulevard Central 22"],
-  // Default fallback if country not found
-  DEFAULT: ["Street Central 100", "Main Avenue 50", "Central Boulevard 75"],
-};
-
-// Define the structure for standardized output
 export interface StandardizedData {
   ID: string;
   Vto_ID: string;
-  NUMERO_DE_PAIS: number;
+  NUMERO_DE_PAIS: number | string;
   Apellido: string;
   Nombre: string;
   Dirección: string;
   N: string;
   Localidad: string;
-  NUMERO_DE_PAIS_2: number;
+  NUMERO_DE_PAIS_2: number | string;
   Sexo: string;
   Estado_Civil: string;
   Fecha_de_Nacimiento: string;
@@ -123,36 +121,60 @@ export interface StandardizedData {
 /**
  * Standardizes and processes raw passport data
  */
-export function processPassportData(data: PassportResult): StandardizedData {
-  // Extract and standardize fields
+export function processPassportData(
+  data: PassportResult & {
+    street_address?: string;
+    address_number?: string;
+    address_locality?: string;
+  }
+): StandardizedData {
+  // Extraer y estandarizar campos
   const country = standardizeCountry(data.nationality || data.country || "");
   const countryCode = getCountryCode(country);
   const birthdate = standardizeDate(data.date_of_birth || "");
 
-  // Extract name components
+  // Extraer componentes del nombre
   const { firstName, lastName } = extractNameComponents(data);
 
-  // Generate a random but plausible address for the country
-  const address = getRandomAddress(country);
-
-  // Determine gender/sex formatting
+  // Determinar género/sexo
   const gender = standardizeGender(data.sex || "");
 
+  // Usar dirección generada por IA si está disponible, o generar una única
+  let address;
+  let locality;
+
+  if (data.street_address) {
+    // Usar dirección proporcionada por la API
+    address = {
+      street: data.street_address,
+      number: data.address_number || generateRandomNumber(1, 150).toString(),
+    };
+    locality = data.address_locality || country;
+  } else {
+    // Generar una dirección única para esta persona
+
+    address = {
+      street: "fallo adress",
+      number: "fallo adress",
+    };
+    locality = "fallo adress";
+  }
+
   return {
-    ID: data.document_id || generateRandomId(),
+    ID: data.document_id,
     Vto_ID: formatExpiryId(data.date_of_expiry || ""),
     NUMERO_DE_PAIS: countryCode,
     Apellido: lastName.toUpperCase(),
     Nombre: firstName.toUpperCase(),
     Dirección: address.street,
     N: address.number,
-    Localidad: country,
+    Localidad: locality,
     NUMERO_DE_PAIS_2: countryCode,
     Sexo: gender,
-    Estado_Civil: "SOLTERO", // Default value, could be enhanced with more data
+    Estado_Civil: "SOLTERO", // Valor predeterminado
     Fecha_de_Nacimiento: birthdate,
-    Lugar_de_nacimiento: country,
-    Profesión: "NO INFORMA", // Default value
+    Lugar_de_nacimiento: data.place_of_birth || country,
+    Profesión: "NO INFORMA", // Valor predeterminado
   };
 }
 
@@ -177,7 +199,12 @@ function standardizeCountry(country: string): string {
     BRAZIL: "BRASIL",
     IRELAND: "IRLANDA",
     AUSTRALIA: "AUSTRALIA",
-    // Add more mappings as needed
+    "UNITED STATES OF AMERICA": "ESTADOS UNIDOS",
+    URUGUAYA: "URUGUAY",
+    NETHERLANDS: "PAISES BAJOS",
+    BRITISH: "INGLATERRA",
+    FRANÇAISE: "FRANCIA",
+    DEUTSCH: "ALEMANIA",
   };
 
   return countryMap[upperCountry] || upperCountry;
@@ -186,8 +213,9 @@ function standardizeCountry(country: string): string {
 /**
  * Gets the country code from the standardized country name
  */
-function getCountryCode(country: string): number {
-  return COUNTRY_CODE_MAP[country] || 0; // Default to 0 if not found
+function getCountryCode(country: string): number | string {
+  console.log("vamos a llamar a country code map con country:", country);
+  return COUNTRY_CODE_MAP[country] || country;
 }
 
 /**
@@ -278,7 +306,7 @@ function extractNameComponents(data: PassportResult): {
   let firstName = data.given_name || "";
   let lastName = data.surname || "";
 
-  // If either is missing, try to extract from full name if available
+  // Si falta alguno, intentar extraer del nombre completo si está disponible
   if ((!firstName || !lastName) && data.given_name) {
     const nameParts = data.given_name.split(" ");
     if (nameParts.length > 1) {
@@ -292,20 +320,9 @@ function extractNameComponents(data: PassportResult): {
   return { firstName, lastName };
 }
 
-/**
- * Gets a random address for the given country
- */
-function getRandomAddress(country: string): { street: string; number: string } {
-  const addresses = SAMPLE_ADDRESSES[country] || SAMPLE_ADDRESSES["DEFAULT"];
-  const randomIndex = Math.floor(Math.random() * addresses.length);
-  const addressParts = addresses[randomIndex].split(" ");
-
-  const number = addressParts.pop() || "";
-  const street = addressParts.join(" ");
-
-  return { street, number };
+function generateRandomNumber(min: number, max: number): number {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
 }
-
 /**
  * Standardizes gender information
  */
@@ -327,13 +344,6 @@ function standardizeGender(gender: string): string {
   }
 
   return upperGender || "M"; // Default to M if empty
-}
-
-/**
- * Generates a random ID if none is provided
- */
-function generateRandomId(): string {
-  return Math.floor(Math.random() * 100000000).toString();
 }
 
 /**
