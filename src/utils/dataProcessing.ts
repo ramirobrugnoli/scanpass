@@ -81,6 +81,7 @@ export const COUNTRY_CODE_MAP: Record<string, number> = {
   INGLATERRA: 63,
   "REPUBLICA CHECA": 64,
   "REPUBLICA DOMINICANA": 65,
+  "REPÚBLICA DOMINICANA": 65,
   RUMANIA: 66,
   RUSIA: 67,
   "SANTA SEDE": 68,
@@ -129,8 +130,12 @@ export function processPassportData(
   }
 ): StandardizedData {
   // Extraer y estandarizar campos
-  const country = standardizeCountry(data.nationality || data.country || "");
+  const country = standardizeCountry(data.place_of_birth);
+  const country2 = standardizeCountry(data.nationality || data.country || "");
+
   const countryCode = getCountryCode(country);
+  const countryCode2 = getCountryCode(country2);
+
   const birthdate = standardizeDate(data.date_of_birth || "");
 
   // Extraer componentes del nombre
@@ -169,7 +174,7 @@ export function processPassportData(
     Dirección: address.street,
     N: address.number,
     Localidad: locality,
-    NUMERO_DE_PAIS_2: countryCode,
+    NUMERO_DE_PAIS_2: countryCode2,
     Sexo: gender,
     Estado_Civil: "SOLTERO", // Valor predeterminado
     Fecha_de_Nacimiento: birthdate,

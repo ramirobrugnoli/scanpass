@@ -1,5 +1,5 @@
 "use client";
-// src/app/components/BatchPassportScanner.tsx - componente actualizado
+
 import { useState, useCallback, useEffect } from "react";
 import { useDropzone } from "react-dropzone";
 import Image from "next/image";
@@ -13,28 +13,25 @@ import {
 
 interface ScanStatus {
   file: File;
-  status: "pending" | "processing" | "completed" | "error";
+  status: "pending" | "processing" | "completed" | "error" | "duplicate";
   result?: PassportResult;
   processedResult?: StandardizedData;
   error?: string;
   preview?: string;
-  compressionStats?: {
-    originalSize: number;
-    compressedSize: number;
-    compressionRatio: number;
-  };
+  documentId?: string; // Store the document ID for duplicate detection
 }
 
-// Máximo número de solicitudes concurrentes (aumentado gracias a la optimización)
-const MAX_CONCURRENT_REQUESTS = 8;
+// Maximum number of concurrent requests
+const MAX_CONCURRENT_REQUESTS = 5;
 
 export default function BatchPassportScanner() {
   const [files, setFiles] = useState<ScanStatus[]>([]);
   const [processing, setProcessing] = useState<boolean>(false);
   const [completed, setCompleted] = useState<number>(0);
   const [failed, setFailed] = useState<number>(0);
+  const [duplicates, setDuplicates] = useState<number>(0); // Track duplicate count
   const [exporting, setExporting] = useState<boolean>(false);
-  const [totalSaved, setTotalSaved] = useState<number>(0);
+  const [processedIds, setProcessedIds] = useState<Set<string>>(new Set()); // Track processed document IDs
   const { compressImage } = useImageCompression();
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
@@ -56,16 +53,13 @@ export default function BatchPassportScanner() {
     maxSize: 10 * 1024 * 1024, // 10MB
   });
 
-  // Procesar archivos en lotes
+  // Process files in batches
   const processFiles = useCallback(async () => {
     if (processing) return;
 
     setProcessing(true);
-    setCompleted(0);
-    setFailed(0);
-    setTotalSaved(0);
 
-    // Obtener todos los archivos pendientes
+    // Get all pending files
     const pendingFiles = files.filter((f) => f.status === "pending");
 
     if (pendingFiles.length === 0) {
@@ -73,7 +67,7 @@ export default function BatchPassportScanner() {
       return;
     }
 
-    // Procesar archivos en lotes usando un patrón semáforo
+    // Process files in batches using a semaphore pattern
     const updateFileStatus = (index: number, updates: Partial<ScanStatus>) => {
       setFiles((prev) =>
         prev.map((file, i) => (i === index ? { ...file, ...updates } : file))
@@ -82,12 +76,11 @@ export default function BatchPassportScanner() {
 
     let activeRequests = 0;
     let fileIndex = 0;
-    let totalBytesSaved = 0;
 
     const processNextFile = async () => {
       if (fileIndex >= pendingFiles.length) return;
 
-      // Encontrar el índice en el array original de archivos
+      // Find the index in the original files array
       const originalIndex = files.findIndex(
         (f) => f.file === pendingFiles[fileIndex].file
       );
@@ -99,25 +92,14 @@ export default function BatchPassportScanner() {
       updateFileStatus(originalIndex, { status: "processing" });
 
       try {
-        // Comprimir la imagen con la función optimizada
-        const { compressedFile, stats } = await compressImage(
-          files[originalIndex].file,
-          true // Indicar que es un pasaporte
-        );
+        // Compress the image (if it's an image)
+        const compressedResult = await compressImage(files[originalIndex].file);
 
-        // Actualizar estadísticas de compresión
-        updateFileStatus(originalIndex, { compressionStats: stats });
-
-        // Acumular bytes ahorrados
-        const bytesSaved = stats.originalSize - stats.compressedSize;
-        totalBytesSaved += bytesSaved;
-        setTotalSaved(totalBytesSaved);
-
-        // Crear FormData
+        // Create form data
         const formData = new FormData();
-        formData.append("file", compressedFile);
+        formData.append("file", compressedResult.compressedFile);
 
-        // Enviar solicitud a la API
+        // Send request to API
         const response = await fetch("/api/scan", {
           method: "POST",
           body: formData,
@@ -125,44 +107,66 @@ export default function BatchPassportScanner() {
 
         if (!response.ok) {
           const errorData = await response.json();
-          throw new Error(errorData.error || "Error al escanear documento");
+          throw new Error(errorData.error || "Error scanning document");
         }
 
         const data = await response.json();
         const rawResult = data.data;
 
-        // Procesar los datos a través de nuestro servicio de estandarización
-        const processedResult = processPassportData(rawResult);
+        // Extract document ID
+        const documentId = rawResult.document_id;
 
-        updateFileStatus(originalIndex, {
-          status: "completed",
-          result: rawResult,
-          processedResult: processedResult,
-        });
-        setCompleted((prev) => prev + 1);
+        // Check if this document ID has already been processed
+        if (documentId && processedIds.has(documentId)) {
+          // This is a duplicate
+          updateFileStatus(originalIndex, {
+            status: "duplicate",
+            result: rawResult,
+            documentId,
+            error: "Documento duplicado - ID ya procesado previamente",
+          });
+          setDuplicates((prev) => prev + 1);
+        } else {
+          // Process the data through our standardization service
+          const processedResult = processPassportData(rawResult);
+
+          updateFileStatus(originalIndex, {
+            status: "completed",
+            result: rawResult,
+            processedResult,
+            documentId,
+          });
+
+          // Add the document ID to the set of processed IDs
+          if (documentId) {
+            setProcessedIds((prev) => new Set(prev).add(documentId));
+          }
+
+          setCompleted((prev) => prev + 1);
+        }
       } catch (error) {
-        console.error("Error procesando archivo:", error);
+        console.error("Error processing file:", error);
         updateFileStatus(originalIndex, {
           status: "error",
-          error: error instanceof Error ? error.message : "Error desconocido",
+          error: error instanceof Error ? error.message : "Unknown error",
         });
         setFailed((prev) => prev + 1);
       } finally {
         activeRequests--;
 
-        // Si podemos procesar más archivos, hacerlo
+        // If we can process more files, do so
         if (activeRequests < MAX_CONCURRENT_REQUESTS) {
           processNextFile();
         }
 
-        // Si no hay más solicitudes activas y no hay más archivos para procesar, hemos terminado
+        // If no more active requests and no more files to process, we're done
         if (activeRequests === 0 && fileIndex >= pendingFiles.length) {
           setProcessing(false);
         }
       }
     };
 
-    // Iniciar lote inicial de solicitudes
+    // Start initial batch of requests
     const initialBatchSize = Math.min(
       MAX_CONCURRENT_REQUESTS,
       pendingFiles.length
@@ -170,9 +174,9 @@ export default function BatchPassportScanner() {
     for (let i = 0; i < initialBatchSize; i++) {
       processNextFile();
     }
-  }, [files, processing, compressImage]);
+  }, [files, processing, compressImage, processedIds]);
 
-  // Limpiar URLs de objetos cuando el componente se desmonta
+  // Clean up object URLs when component unmounts
   useEffect(() => {
     return () => {
       files.forEach((file) => {
@@ -181,36 +185,73 @@ export default function BatchPassportScanner() {
     };
   }, [files]);
 
-  // Exportar a Excel
+  // Export to CSV (raw data)
+  const exportToCSV = useCallback(() => {
+    // Get all completed scans (exclude duplicates)
+    const completedScans = files
+      .filter((f) => f.status === "completed" && f.result)
+      .map((f) => f.result as PassportResult);
+
+    if (completedScans.length === 0) {
+      alert("No completed scans to export");
+      return;
+    }
+
+    // Create CSV content
+    const headers = Object.keys(completedScans[0] || {}).join(",");
+    const rows = completedScans.map((scan) =>
+      Object.values(scan || {})
+        .map((value) =>
+          // Handle values with commas by wrapping in quotes
+          typeof value === "string" && value.includes(",")
+            ? `"${value}"`
+            : value
+        )
+        .join(",")
+    );
+
+    const csvContent = [headers, ...rows].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+
+    // Create download link and trigger click
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute(
+      "download",
+      `passport_raw_scans_${new Date().toISOString().split("T")[0]}.csv`
+    );
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    // Clean up
+    URL.revokeObjectURL(url);
+  }, [files]);
+
+  // Export to Excel with AI enhancement (formatted data)
   const exportToExcel = useCallback(async () => {
     setExporting(true);
 
     try {
-      // Obtener todos los escaneos completados
+      // Get all completed scans (exclude duplicates)
       const completedScans = files
         .filter((f) => f.status === "completed" && f.result)
         .map((f) => f.result as PassportResult);
 
       if (completedScans.length === 0) {
-        alert("No hay escaneos completados para exportar");
+        alert("No completed scans to export");
         return;
       }
 
-      // Mostrar mensaje de proceso
-      console.log("Mejorando datos con IA y generando direcciones únicas...");
-
-      // Generar archivo Excel con mejora de IA (incluye direcciones únicas)
+      // Use our Excel export utility with AI enhancement
       const excelFile = await generateExcelFileFromMultiple(completedScans);
       downloadExcelFile(excelFile);
-
-      console.log(
-        "Exportación completada con direcciones únicas generadas para cada persona"
-      );
     } catch (error) {
-      console.error("Error exportando a Excel:", error);
+      console.error("Error exporting to Excel:", error);
       alert(
-        `Error de exportación: ${
-          error instanceof Error ? error.message : "Error desconocido"
+        `Export error: ${
+          error instanceof Error ? error.message : "Unknown error"
         }`
       );
     } finally {
@@ -218,22 +259,20 @@ export default function BatchPassportScanner() {
     }
   }, [files]);
 
-  // Formatear bytes para visualización
-  const formatBytes = (bytes: number): string => {
-    if (bytes === 0) return "0 Bytes";
-    const k = 1024;
-    const sizes = ["Bytes", "KB", "MB", "GB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+  // Clear processed IDs to reset duplicate detection
+  const handleReset = () => {
+    setFiles([]);
+    setProcessedIds(new Set());
+    setCompleted(0);
+    setFailed(0);
+    setDuplicates(0);
   };
 
   return (
     <div className="w-full max-w-6xl mx-auto p-4">
-      <h2 className="text-2xl font-bold mb-4">
-        Escáner de Pasaportes por Lotes
-      </h2>
+      <h2 className="text-2xl font-bold mb-4">Batch Passport Scanner</h2>
 
-      {/* Área de carga */}
+      {/* Upload area */}
       <div
         {...getRootProps()}
         className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors mb-6 ${
@@ -245,19 +284,18 @@ export default function BatchPassportScanner() {
         <input {...getInputProps()} />
         <div>
           <p className="text-lg">
-            Arrastra y suelta imágenes de pasaportes aquí, o haz clic para
-            seleccionar
+            Drag and drop passport images here, or click to select
           </p>
           <p className="text-sm text-black-500 mt-2">
-            Soporta JPG, PNG, PDF (hasta 10MB cada uno)
+            Supports JPG, PNG, PDF (up to 10MB each)
           </p>
           <p className="text-sm text-black-500 mt-1">
-            {files.length} archivos seleccionados
+            {files.length} files selected
           </p>
         </div>
       </div>
 
-      {/* Acciones */}
+      {/* Actions */}
       <div className="flex flex-wrap gap-4 mb-6">
         <button
           onClick={processFiles}
@@ -267,7 +305,15 @@ export default function BatchPassportScanner() {
           }
           className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-indigo-300"
         >
-          {processing ? "Procesando..." : "Procesar todos los archivos"}
+          {processing ? "Processing..." : "Process All Files"}
+        </button>
+
+        <button
+          onClick={exportToCSV}
+          disabled={files.filter((f) => f.status === "completed").length === 0}
+          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300"
+        >
+          Export Raw (CSV)
         </button>
 
         <button
@@ -278,66 +324,54 @@ export default function BatchPassportScanner() {
           }
           className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-green-300"
         >
-          {exporting ? "Exportando..." : "Exportar a Excel"}
+          {exporting ? "Processing & Exporting..." : "Export Formatted (Excel)"}
         </button>
 
         <button
-          onClick={() => setFiles([])}
+          onClick={handleReset}
           disabled={files.length === 0}
           className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-300"
         >
-          Limpiar todo
+          Clear All
         </button>
       </div>
 
-      {/* Progreso */}
-      {(processing || completed > 0 || failed > 0) && (
+      {/* Progress */}
+      {(processing || completed > 0 || failed > 0 || duplicates > 0) && (
         <div className="mb-6 p-4 border rounded-md bg-black-50">
-          <h3 className="font-semibold mb-2">Progreso</h3>
+          <h3 className="font-semibold mb-2">Progress</h3>
           <div className="flex flex-wrap gap-4">
             <div>
               <span className="text-black-600">Total:</span> {files.length}
             </div>
             <div>
-              <span className="text-black-600">Pendientes:</span>{" "}
+              <span className="text-black-600">Pending:</span>{" "}
               {files.filter((f) => f.status === "pending").length}
             </div>
             <div>
-              <span className="text-black-600">Procesando:</span>{" "}
+              <span className="text-black-600">Processing:</span>{" "}
               {files.filter((f) => f.status === "processing").length}
             </div>
             <div>
-              <span className="text-green-600">Completados:</span> {completed}
+              <span className="text-green-600">Completed:</span> {completed}
             </div>
             <div>
-              <span className="text-red-600">Fallidos:</span> {failed}
+              <span className="text-yellow-600">Duplicates:</span> {duplicates}
             </div>
-            {totalSaved > 0 && (
-              <div>
-                <span className="text-blue-600">Ahorro de espacio:</span>{" "}
-                {formatBytes(totalSaved)} (
-                {Math.round(
-                  (totalSaved /
-                    (totalSaved +
-                      files.reduce(
-                        (acc, file) =>
-                          acc + (file.compressionStats?.compressedSize || 0),
-                        0
-                      ))) *
-                    100
-                )}
-                %)
-              </div>
-            )}
+            <div>
+              <span className="text-red-600">Failed:</span> {failed}
+            </div>
           </div>
 
-          {/* Barra de progreso */}
+          {/* Progress bar */}
           {files.length > 0 && (
             <div className="w-full bg-black-200 rounded-full h-2.5 mt-2">
               <div
                 className="bg-indigo-600 h-2.5 rounded-full"
                 style={{
-                  width: `${((completed + failed) / files.length) * 100}%`,
+                  width: `${
+                    ((completed + failed + duplicates) / files.length) * 100
+                  }%`,
                 }}
               ></div>
             </div>
@@ -345,38 +379,41 @@ export default function BatchPassportScanner() {
         </div>
       )}
 
-      {/* Lista de archivos */}
+      {/* File list */}
       {files.length > 0 && (
         <div className="border rounded-md overflow-hidden">
           <table className="min-w-full divide-y divide-black-200">
             <thead className="bg-black-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-black-500 uppercase tracking-wider">
-                  Vista previa
+                  Preview
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-black-500 uppercase tracking-wider">
-                  Nombre de archivo
+                  Filename
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-black-500 uppercase tracking-wider">
-                  Estado
+                  Status
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-black-500 uppercase tracking-wider">
-                  Compresión
+                  Document ID
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-black-500 uppercase tracking-wider">
-                  Datos procesados
+                  Results
                 </th>
               </tr>
             </thead>
             <tbody className="bg-black divide-y divide-white-200">
               {files.map((file, index) => (
-                <tr key={index}>
+                <tr
+                  key={index}
+                  className={file.status === "duplicate" ? "bg-red-50" : ""}
+                >
                   <td className="px-6 py-4 whitespace-nowrap">
                     {file.preview && (
                       <div className="h-16 w-24 relative">
                         <Image
                           src={file.preview}
-                          alt="Vista previa"
+                          alt="Preview"
                           fill
                           className="object-contain"
                         />
@@ -410,12 +447,19 @@ export default function BatchPassportScanner() {
                           : ""
                       }
                       ${
+                        file.status === "duplicate"
+                          ? "bg-red-100 text-red-800"
+                          : ""
+                      }
+                      ${
                         file.status === "error" ? "bg-red-100 text-red-800" : ""
                       }
                     `}
                     >
-                      {file.status.charAt(0).toUpperCase() +
-                        file.status.slice(1)}
+                      {file.status === "duplicate"
+                        ? "Duplicado"
+                        : file.status.charAt(0).toUpperCase() +
+                          file.status.slice(1)}
                     </span>
                     {file.error && (
                       <div className="text-xs text-red-500 mt-1">
@@ -424,50 +468,35 @@ export default function BatchPassportScanner() {
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    {file.compressionStats ? (
-                      <div className="text-xs">
-                        <div>
-                          Original:{" "}
-                          {formatBytes(file.compressionStats.originalSize)}
-                        </div>
-                        <div>
-                          Comprimido:{" "}
-                          {formatBytes(file.compressionStats.compressedSize)}
-                        </div>
-                        <div className="font-semibold text-green-600">
-                          Ratio:{" "}
-                          {file.compressionStats.compressionRatio.toFixed(1)}x
-                        </div>
-                        <div>
-                          Ahorro:{" "}
-                          {formatBytes(
-                            file.compressionStats.originalSize -
-                              file.compressionStats.compressedSize
-                          )}
-                          (
-                          {Math.round(
-                            (1 -
-                              file.compressionStats.compressedSize /
-                                file.compressionStats.originalSize) *
-                              100
-                          )}
-                          %)
-                        </div>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-gray-500">
-                        No procesado
-                      </span>
+                    {file.documentId && (
+                      <span className="text-sm">{file.documentId}</span>
                     )}
                   </td>
                   <td className="px-6 py-4">
+                    {(file.status === "completed" ||
+                      file.status === "duplicate") &&
+                      file.result && (
+                        <details className="text-xs">
+                          <summary className="cursor-pointer font-medium text-indigo-600">
+                            View Scan Results
+                          </summary>
+                          <div className="mt-2 max-h-32 overflow-y-auto">
+                            {Object.entries(file.result).map(([key, value]) => (
+                              <div key={key} className="mb-1">
+                                <span className="font-medium">{key}:</span>{" "}
+                                {value as string}
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      )}
+
                     {file.status === "completed" && file.processedResult && (
-                      <details className="text-xs">
+                      <details className="text-xs mt-2">
                         <summary className="cursor-pointer font-medium text-indigo-600">
-                          Ver datos procesados
+                          View Formatted Data
                         </summary>
-                        <div className="mt-2 max-h-40 overflow-y-auto">
-                          {/* Mostrar todos los campos */}
+                        <div className="mt-2 max-h-32 overflow-y-auto">
                           {Object.entries(file.processedResult).map(
                             ([key, value]) => (
                               <div key={key} className="mb-1">

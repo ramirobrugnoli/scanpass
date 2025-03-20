@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
       Datos del pasaporte: ${JSON.stringify(passportData, null, 2)}
       
       Devuelve SOLO un objeto JSON válido que incluya los campos originales mejorados y estos campos adicionales:
-      - "street_address": la calle con formato apropiado (DEBE SER ÚNICA y específica)
+      - "street_address": la calle con formato apropiado (DEBE SER ÚNICA y específica) SIN NÙMERO, SOLO NOMBRE DE LA CALLE
       - "address_number": el número de la dirección
       
       NO incluyas explicaciones, código de formato markdown, o cualquier cosa que no sea el objeto JSON.
