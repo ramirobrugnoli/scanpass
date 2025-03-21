@@ -10,6 +10,7 @@ export const COUNTRY_CODE_MAP: Record<string, number> = {
   AUSTRALIA: 2,
   AUSTRIA: 3,
   BELGICA: 4,
+  BÉLGICA: 4,
   BOLIVIA: 5,
   BRASIL: 6,
   BULGARIA: 7,
@@ -26,6 +27,7 @@ export const COUNTRY_CODE_MAP: Record<string, number> = {
   CUBA: 17,
   DINAMARCA: 18,
   ECUADOR: 19,
+  ECU: 19,
   EGIPTO: 20,
   "EL SALVADOR": 21,
   ESLOVAQUIA: 22,
@@ -79,6 +81,7 @@ export const COUNTRY_CODE_MAP: Record<string, number> = {
   PORTUGAL: 61,
   "PUERTO RICO": 62,
   INGLATERRA: 63,
+  "REINO UNIDO": 63,
   "REPUBLICA CHECA": 64,
   "REPUBLICA DOMINICANA": 65,
   "REPÚBLICA DOMINICANA": 65,
@@ -148,6 +151,8 @@ export function processPassportData(
   let address;
   let locality;
 
+  console.log("data en processPassportData:", data);
+
   if (data.street_address) {
     // Usar dirección proporcionada por la API
     address = {
@@ -156,8 +161,7 @@ export function processPassportData(
     };
     locality = data.address_locality || country;
   } else {
-    // Generar una dirección única para esta persona
-
+    // Generar una dirección única para esta person
     address = {
       street: "fallo adress",
       number: "fallo adress",
@@ -210,6 +214,40 @@ function standardizeCountry(country: string): string {
     BRITISH: "INGLATERRA",
     FRANÇAISE: "FRANCIA",
     DEUTSCH: "ALEMANIA",
+    ESPAÑOLA: "ESPAÑA",
+    ECUATORIANA: "ECUADOR",
+    ITALIANA: "ITALIA",
+    ISRAELI: "ISRAEL",
+    COLOMBIANA: "COLOMBIA",
+    ARGENTINA: "ARGENTINA",
+    ARGENTINO: "ARGENTINA",
+    ARGENTINIAN: "ARGENTINA",
+    "MAGYAR/HUNGARIAN": "HUNGRIA",
+    HUNGARIAN: "HUNGRIA",
+    HUNGARY: "HUNGRIA",
+    BEL: "BELGICA",
+    BELGIAN: "BELGICA",
+    "ECUATORIANA/ECUADORIAN": "ECUADOR",
+    ECUADORIAN: "ECUADOR",
+    ECUATOR: "ECUADOR",
+    BRITÁNICO: "INGLATERRA",
+    BRITÁNICA: "INGLATERRA",
+    PORTUGUESA: "PORTUGAL",
+    "NORSK/NORUEGO": "NORUEGA",
+    FRANCAISE: "FRANCIA",
+    FRANCESA: "FRANCIA",
+    ALEMAN: "ALEMANIA",
+    PARAGUAYA: "PARAGUAY",
+    MEXICANA: "MEXICO",
+    "ÉIREANNACH/IRISH": "IRLANDA",
+    ÉIREANNACH: "IRLANDA",
+    IRISH: "IRLANDA",
+    ECU: "ECUADOR",
+    AUSTRIAN: "AUSTRIA",
+    "BRASILEIRO(A)": "BRASIL",
+    BRASILEIRO: "BRASIL",
+    BRASILEIRA: "BRASIL",
+    ALEMANIA: "ALEMANIA",
   };
 
   return countryMap[upperCountry] || upperCountry;

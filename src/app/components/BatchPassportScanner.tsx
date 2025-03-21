@@ -229,7 +229,7 @@ export default function BatchPassportScanner() {
     };
   }, [files]);
 
-  // Export to CSV (raw data)
+  /*   // Export to CSV (raw data)
   const exportToCSV = useCallback(() => {
     // Get all completed scans (exclude duplicates)
     const completedScans = files
@@ -271,7 +271,7 @@ export default function BatchPassportScanner() {
 
     // Clean up
     URL.revokeObjectURL(url);
-  }, [files]);
+  }, [files]); */
 
   // Export to Excel with AI enhancement (formatted data)
   const exportToExcel = useCallback(async () => {
@@ -350,14 +350,6 @@ export default function BatchPassportScanner() {
           className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-indigo-300"
         >
           {processing ? "Processing..." : "Process All Files"}
-        </button>
-
-        <button
-          onClick={exportToCSV}
-          disabled={files.filter((f) => f.status === "completed").length === 0}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300"
-        >
-          Export Raw (CSV)
         </button>
 
         <button

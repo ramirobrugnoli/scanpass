@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
 
     // Realizar la llamada a la API de OpenAI
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o", // Puedes usar "gpt-3.5-turbo" para mayor eficiencia en costos
+      model: "gpt-3.5-turbo", // Puedes usar "gpt-3.5-turbo" para mayor eficiencia en costos
       messages: [
         {
           role: "system",
