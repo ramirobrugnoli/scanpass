@@ -105,6 +105,156 @@ export const COUNTRY_CODE_MAP: Record<string, number> = {
   VIETNAM: 83,
 };
 
+// Mapa directo de gentilicios a códigos de país
+export const GENTILICIO_CODE_MAP: Record<string, number> = {
+  // Códigos de países
+  ALEMANIA: 0,
+  ARGENTINA: 1,
+  ARMENIA: 1,
+  AUSTRALIA: 2,
+  AUSTRIA: 3,
+  BELGICA: 4,
+  BOLIVIA: 5,
+  BRASIL: 6,
+  BULGARIA: 7,
+  CANADA: 8,
+  CHILE: 9,
+  CHINA: 10,
+  COLOMBIA: 11,
+  CONGO: 12,
+  ECUADOR: 19,
+  ESPAÑA: 24,
+  "ESTADOS UNIDOS": 25,
+  FRANCIA: 28,
+  ISRAEL: 40,
+  ITALIA: 41,
+  NORUEGA: 54,
+  "REINO UNIDO": 63,
+
+  // Gentilicios en español - Directamente a códigos
+  ALEMAN: 0,
+  ALEMÁN: 0,
+  ALEMANA: 0,
+  DEUTSCH: 0,
+
+  ARGENTINO: 1,
+  ARGENTINIAN: 1,
+  ARGENTINEAN: 1,
+
+  AUSTRALIANO: 2,
+  AUSTRALIAN: 2,
+  AUSTRALIANA: 2,
+
+  AUSTRIACO: 3,
+  AUSTRIAN: 3,
+  AUSTRIACA: 3,
+
+  BELGA: 4,
+  BELGIAN: 4,
+  BEL: 4,
+
+  BOLIVIANO: 5,
+  BOLIVIAN: 5,
+  BOLIVIANA: 5,
+
+  BRASILEIRO: 6,
+  BRASILEÑO: 6,
+  BRASILEIRA: 6,
+  BRASILENA: 6,
+  BRASILEÑA: 6,
+  BRAZILIAN: 6,
+  "BRASILEIRO(A)": 6,
+
+  CANADIENSE: 8,
+  CANADIAN: 8,
+
+  CHILENO: 9,
+  CHILEAN: 9,
+  CHILENA: 9,
+
+  CHINO: 10,
+  CHINESE: 10,
+
+  COLOMBIANO: 11,
+  COLOMBIANA: 11,
+  COLOMBIAN: 11,
+
+  ECUATORIANO: 19,
+  ECUATORIANA: 19,
+  ECUADORIAN: 19,
+  ECUATOR: 19,
+  "ECUATORIANA/ECUADORIAN": 19,
+  "ECUATORIANA/ECUATORIANO": 19,
+  ECU: 19,
+
+  ESPAÑOL: 24,
+  ESPAÑOLA: 24,
+  ESPANOL: 24,
+  ESPANOLA: 24,
+  SPANISH: 24,
+
+  ESTADOUNIDENSE: 25,
+  AMERICAN: 25,
+  AMERICANA: 25,
+  AMERICANO: 25,
+  USA: 25,
+  "U.S.A.": 25,
+  "U.S.A": 25,
+  "EE.UU.": 25,
+
+  FRANCES: 28,
+  FRANCÉS: 28,
+  FRANCESA: 28,
+  FRANCAISE: 28,
+  FRANÇAISE: 28,
+  FRENCH: 28,
+
+  ISRAELI: 40,
+  ISRAELÍ: 40,
+
+  ITALIANO: 41,
+  ITALIANA: 41,
+  ITALIAN: 41,
+
+  NORUEGO: 54,
+  NORWEGIAN: 54,
+  "NORSK/NORUEGO": 54,
+  "NORSK/NORUEGA": 54,
+
+  BRITANICO: 63,
+  BRITÁNICO: 63,
+  BRITÁNICA: 63,
+  BRITANICA: 63,
+  BRITISH: 63,
+  ENGLISH: 63,
+  INGLATERRA: 63,
+  "UNITED KINGDOM": 63,
+  "GREAT BRITAIN": 63,
+  UK: 63,
+
+  // Añadir más según los casos problemáticos
+  "IRLANDA DEL NORTE": 38,
+  "ÉIREANNACH/IRISH": 38,
+  ÉIREANNACH: 38,
+  IRISH: 38,
+  IRLANDA: 38,
+  IRLANDES: 38,
+  IRLANDÉS: 38,
+
+  PARAGUAYA: 58,
+  PARAGUAYO: 58,
+  PARAGUAYAN: 58,
+
+  MEXICANA: 51,
+  MEXICANO: 51,
+  MEXICAN: 51,
+  MEXICO: 51,
+
+  VIETNAMITA: 83,
+  VIETNAMESE: 83,
+  VIETNAM: 83,
+};
+
 export interface StandardizedData {
   ID: string;
   Vto_ID: string;
@@ -134,19 +284,35 @@ export function processPassportData(
 ): StandardizedData {
   // Extraer y estandarizar campos
   const country = standardizeCountry(data.place_of_birth);
-  const country2 = standardizeCountry(data.nationality || data.country || "");
+  const nationality = data.nationality || data.country || "";
 
   // Obtener código del país de nacimiento
   const countryCode = getCountryCode(country);
 
-  // Para NUMERO_DE_PAIS_2, necesitamos asegurar que obtenemos el código numérico
-  // incluso si es un gentilicio - por eso hacemos una doble estandarización
-  const standardizedCountry2 = standardizeCountry(country2);
-  // Usar el código del país estandarizado, o como fallback usar el país estandarizado
-  const countryCode2 =
-    COUNTRY_CODE_MAP[standardizedCountry2] !== undefined
-      ? COUNTRY_CODE_MAP[standardizedCountry2]
-      : standardizedCountry2;
+  // Para NUMERO_DE_PAIS_2, ahora usamos el mapa directo de gentilicios
+  let countryCode2: number | string = nationality;
+
+  if (nationality) {
+    // Primero intentamos obtener directamente del mapa de gentilicios
+    const upperNationality = nationality.trim().toUpperCase();
+    if (GENTILICIO_CODE_MAP[upperNationality] !== undefined) {
+      countryCode2 = GENTILICIO_CODE_MAP[upperNationality];
+      console.log(
+        `Gentilicio mapeado directamente: ${upperNationality} → ${countryCode2}`
+      );
+    } else {
+      // Si no está en el mapa de gentilicios, intentamos estandarizar y buscar en países
+      const standardizedCountry2 = standardizeCountry(nationality);
+      if (COUNTRY_CODE_MAP[standardizedCountry2] !== undefined) {
+        countryCode2 = COUNTRY_CODE_MAP[standardizedCountry2];
+        console.log(
+          `País estandarizado: ${nationality} → ${standardizedCountry2} → ${countryCode2}`
+        );
+      } else {
+        console.log(`No se encontró código para: ${nationality}`);
+      }
+    }
+  }
 
   const birthdate = standardizeDate(data.date_of_birth || "");
 
@@ -763,17 +929,22 @@ function standardizeGender(gender: string): string {
 
 /**
  * Formats expiry date as an ID
+ * @param expiryDate La fecha de vencimiento en cualquier formato
+ * @returns La fecha en formato DDMMAAAA
  */
 function formatExpiryId(expiryDate: string): string {
-  if (!expiryDate) return Math.floor(Math.random() * 10000000).toString();
+  if (!expiryDate) return "";
 
-  // Generate a plausible expiry ID based on the expiry date
-  const standardizedDate = standardizeDate(expiryDate);
-  if (standardizedDate.length >= 8) {
-    return (
-      standardizedDate.slice(4) + Math.floor(Math.random() * 10000).toString()
-    );
+  // Eliminar espacios y cualquier carácter no numérico
+  const cleanDate = expiryDate.replace(/\s+/g, "").replace(/[^\d]/g, "");
+
+  // Si la fecha ya tiene 8 dígitos, está en formato DDMMAAAA o similar
+  if (cleanDate.length === 8) {
+    return cleanDate;
   }
 
-  return Math.floor(Math.random() * 10000000).toString();
+  // Si la fecha no está en el formato esperado, intentamos estandarizarla
+  const standardizedDate = standardizeDate(expiryDate);
+
+  return standardizedDate;
 }
