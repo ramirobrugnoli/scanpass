@@ -136,8 +136,17 @@ export function processPassportData(
   const country = standardizeCountry(data.place_of_birth);
   const country2 = standardizeCountry(data.nationality || data.country || "");
 
+  // Obtener código del país de nacimiento
   const countryCode = getCountryCode(country);
-  const countryCode2 = getCountryCode(country2);
+
+  // Para NUMERO_DE_PAIS_2, necesitamos asegurar que obtenemos el código numérico
+  // incluso si es un gentilicio - por eso hacemos una doble estandarización
+  const standardizedCountry2 = standardizeCountry(country2);
+  // Usar el código del país estandarizado, o como fallback usar el país estandarizado
+  const countryCode2 =
+    COUNTRY_CODE_MAP[standardizedCountry2] !== undefined
+      ? COUNTRY_CODE_MAP[standardizedCountry2]
+      : standardizedCountry2;
 
   const birthdate = standardizeDate(data.date_of_birth || "");
 
@@ -611,9 +620,16 @@ function standardizeCountry(country: string): string {
 /**
  * Gets the country code from the standardized country name
  */
-function getCountryCode(country: string): number | string {
-  console.log("vamos a llamar a country code map con country:", country);
-  return COUNTRY_CODE_MAP[country] || country;
+function getCountryCode(countryOrNationality: string): number | string {
+  const standardizedCountry = standardizeCountry(countryOrNationality);
+
+  const code = COUNTRY_CODE_MAP[standardizedCountry];
+
+  console.log(
+    `Mapeando: ${countryOrNationality} → ${standardizedCountry} → ${code}`
+  );
+
+  return code !== undefined ? code : standardizedCountry;
 }
 
 /**
